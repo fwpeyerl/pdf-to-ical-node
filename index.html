@@ -2,12 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>PDF to iCal Preview</title>
+  <title>PDF to iCal Debug</title>
   <style>
     body { font-family: sans-serif; padding: 20px; }
     #loading { display: none; color: green; font-weight: bold; }
     table { border-collapse: collapse; margin-top: 10px; }
     td, th { border: 1px solid #ccc; padding: 4px 8px; }
+    pre { background: #f4f4f4; padding: 10px; margin-top: 20px; max-height: 300px; overflow: auto; }
   </style>
 </head>
 <body>
@@ -22,6 +23,7 @@
   </select><br><br>
   <button id="previewBtn">Preview Events</button>
   <p id="loading">Processing... please wait.</p>
+  <pre id="debugOutput" style="display:none;"></pre>
   <table id="eventTable" style="display:none;">
     <thead>
       <tr><th>Month</th><th>Day</th><th>Time</th><th>Title</th><th>Location</th></tr>
@@ -35,6 +37,7 @@ let parsedEvents = [];
 
 document.getElementById("pdfInput").addEventListener("change", () => {
   document.getElementById("eventTable").style.display = "none";
+  document.getElementById("debugOutput").style.display = "none";
   document.getElementById("downloadBtn").style.display = "none";
 });
 
@@ -51,16 +54,23 @@ document.getElementById("previewBtn").addEventListener("click", async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ body: base64 })
     });
-    parsedEvents = await response.json();
+    const { parsed, debug } = await response.json();
+    parsedEvents = parsed;
+
     const tbody = document.querySelector("#eventTable tbody");
     tbody.innerHTML = "";
-    parsedEvents.forEach(e => {
+    parsed.forEach(e => {
       const row = document.createElement("tr");
       row.innerHTML = `<td>${e.month}</td><td>${e.day}</td><td>${e.hour}:${String(e.minute).padStart(2, '0')}</td><td>${e.title}</td><td>${e.location}</td>`;
       tbody.appendChild(row);
     });
-    document.getElementById("eventTable").style.display = "table";
-    document.getElementById("downloadBtn").style.display = "inline-block";
+
+    const debugOut = document.getElementById("debugOutput");
+    debugOut.innerText = debug.map(e => `[${e.index}] ${e.matched ? "✔" : "✖"} ${e.line}`).join("\n");
+    debugOut.style.display = "block";
+
+    document.getElementById("eventTable").style.display = parsed.length ? "table" : "none";
+    document.getElementById("downloadBtn").style.display = parsed.length ? "inline-block" : "none";
     document.getElementById("loading").style.display = "none";
   };
   reader.readAsDataURL(file);
