@@ -27,18 +27,22 @@ exports.handler = async function(event, context) {
     rawLines.forEach((line, index) => {
       const entry = { line, matched: false, result: null, index: index + 1 };
 
-      // Split lines like "2 9A Good News"
+      // Special line like "2 9A Good News"
       const splitMatch = line.match(splitDayAndEventRegex);
       if (splitMatch) {
         const [, dayStr, hourStr, ampm, title] = splitMatch;
-        currentDay = parseInt(dayStr);
+        const baseDay = parseInt(dayStr);
         let hour = parseInt(hourStr);
         if (ampm.toUpperCase() === "P" && hour < 12) hour += 12;
         if (ampm.toUpperCase() === "A" && hour === 12) hour = 0;
+
+        // Set currentDay to the next day (base + 1) and assign event to that day
+        currentDay = baseDay + 1;
+
         entry.matched = true;
         entry.result = {
           month: currentMonth,
-          day: currentDay + 1,  // Event goes to *next* day
+          day: currentDay,
           title: title.trim(),
           hour,
           minute: 0,
@@ -48,21 +52,21 @@ exports.handler = async function(event, context) {
         return;
       }
 
-      // Match single day on a line
+      // Set the currentDay if it's a pure number line
       const dayMatch = line.match(dayOnlyRegex);
       if (dayMatch) {
         currentDay = parseInt(dayMatch[0]);
         return;
       }
 
-      // Match "9A Good News"
+      // Timed event like "9A Good News"
       const match = line.match(timeApmRegex);
       if (match) {
         let [, hour, ampm, title] = match;
         hour = parseInt(hour);
         if (ampm.toUpperCase() === "P" && hour < 12) hour += 12;
         if (ampm.toUpperCase() === "A" && hour === 12) hour = 0;
-        if (currentDay) {
+        if (currentDay !== null) {
           entry.matched = true;
           entry.result = {
             month: currentMonth,
@@ -77,8 +81,8 @@ exports.handler = async function(event, context) {
         return;
       }
 
-      // Match all-day event
-      if (currentDay && line && !line.match(timeApmRegex)) {
+      // All-day event
+      if (currentDay !== null && line && !line.match(timeApmRegex)) {
         entry.matched = true;
         entry.result = {
           month: currentMonth,
