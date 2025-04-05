@@ -4,98 +4,46 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Convert PDF Calendar to iCal</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      text-align: center;
-      padding: 2rem;
-      background: #f9f9f9;
-    }
-    .container {
-      background: white;
-      padding: 2rem;
-      border-radius: 8px;
-      max-width: 500px;
-      margin: auto;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    }
-    .btn {
-      margin-top: 1rem;
-      padding: 0.5rem 1.5rem;
-      background: #007bff;
-      color: white;
-      border: none;
-      border-radius: 5px;
-      cursor: pointer;
-    }
-    .btn:hover {
-      background: #0056b3;
-    }
-    #downloadLink {
-      margin-top: 2rem;
-      display: none;
-    }
-  </style>
 </head>
 <body>
-  <div class="container">
-    <h1>Upload PDF Calendar</h1>
-    <form id="uploadForm">
-      <input type="file" id="pdfInput" accept="application/pdf" required />
-      <br><br>
-      <label for="timezone">Choose Timezone:</label>
-      <select id="timezone">
-        <option value="America/Chicago" selected>America/Chicago (CST)</option>
-        <option value="America/New_York">America/New_York (EST)</option>
-        <option value="America/Denver">America/Denver (MST)</option>
-        <option value="America/Los_Angeles">America/Los_Angeles (PST)</option>
-      </select>
-      <br>
-      <button class="btn" type="submit">Convert to iCal</button>
-    </form>
-    <a id="downloadLink" class="btn" href="#" download="converted-calendar.ics">Download iCal File</a>
-  </div>
-  <script>
-    function fileToBase64(file) {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const base64String = reader.result.split(",")[1];
-          resolve(base64String);
-        };
-        reader.onerror = (error) => reject(error);
-        reader.readAsDataURL(file);
-      });
-    }
+  <h1>Upload PDF Calendar</h1>
+  <form id="uploadForm">
+    <input type="file" id="pdfInput" accept="application/pdf" required />
+    <br>
+    <label for="timezone">Timezone:</label>
+    <select id="timezone">
+      <option value="America/Chicago">America/Chicago</option>
+      <option value="America/New_York">America/New_York</option>
+      <option value="America/Denver">America/Denver</option>
+      <option value="America/Los_Angeles">America/Los_Angeles</option>
+    </select>
+    <br>
+    <button type="submit">Convert to iCal</button>
+  </form>
+  <a id="downloadLink" href="#" download="converted-calendar.ics" style="display:none;">Download iCal File</a>
 
-    document.getElementById("uploadForm").addEventListener("submit", async function (e) {
+  <script>
+    document.getElementById("uploadForm").addEventListener("submit", async function(e) {
       e.preventDefault();
-      const fileInput = document.getElementById("pdfInput");
-      const file = fileInput.files[0];
+      const file = document.getElementById("pdfInput").files[0];
       const timezone = document.getElementById("timezone").value;
-      if (!file) {
-        alert("Please choose a PDF file first.");
-        return;
-      }
-      try {
-        const base64 = await fileToBase64(file);
+      if (!file) return alert("Please select a PDF file.");
+
+      const reader = new FileReader();
+      reader.onload = async function() {
+        const base64 = reader.result.split(",")[1];
         const response = await fetch("/.netlify/functions/pdfToIcal", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ body: base64, timezone })
         });
-        if (!response.ok) {
-          throw new Error("Server error: " + response.statusText);
-        }
         const blob = await response.blob();
         const url = URL.createObjectURL(blob);
         const downloadLink = document.getElementById("downloadLink");
         downloadLink.href = url;
         downloadLink.style.display = "inline-block";
-      } catch (error) {
-        console.error("Conversion error:", error.message);
-        alert("Error: " + error.message);
-      }
+      };
+      reader.readAsDataURL(file);
     });
   </script>
 </body>

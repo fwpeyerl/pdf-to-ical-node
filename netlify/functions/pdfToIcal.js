@@ -11,28 +11,48 @@ exports.handler = async function(event, context) {
     const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
 
     const events = [];
-    const regex = /^(\d{1,2})(?:\s+(\d{1,2})([AP]M))?\s+(.+)/i;
+    let currentDay = null;
 
-    for (const line of lines) {
-      const match = line.match(regex);
-      if (match) {
-        const day = parseInt(match[1]);
-        const timeHour = match[2] ? parseInt(match[2]) : null;
-        const ampm = match[3];
-        const title = match[4];
+    lines.forEach(line => {
+      const dayAtEnd = line.match(/(.*)\s+(\d{1,2})$/);
+      const dayAtStart = line.match(/^(\d{1,2}):\s+(.*)/);
+      const timeEventPattern = /^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?[:\s-]+(.+)/i;
 
-        let hour24 = timeHour;
-        if (ampm === 'PM' && timeHour < 12) hour24 += 12;
-        if (ampm === 'AM' && timeHour === 12) hour24 = 0;
-
-        events.push({
-          day,
-          title,
-          hour: hour24,
-          minute: 0
-        });
+      if (dayAtEnd) {
+        currentDay = parseInt(dayAtEnd[2]);
+        line = dayAtEnd[1].trim();
       }
-    }
+
+      if (dayAtStart) {
+        currentDay = parseInt(dayAtStart[1]);
+        line = dayAtStart[2];
+      }
+
+      if (currentDay !== null && line) {
+        const timeMatch = line.match(timeEventPattern);
+        if (timeMatch) {
+          let [ , hour, minute = '00', ampm, title ] = timeMatch;
+          hour = parseInt(hour);
+          if (ampm) {
+            if (ampm.toUpperCase() === 'PM' && hour < 12) hour += 12;
+            if (ampm.toUpperCase() === 'AM' && hour === 12) hour = 0;
+          }
+          events.push({
+            day: currentDay,
+            title: title.trim(),
+            hour,
+            minute: parseInt(minute)
+          });
+        } else {
+          events.push({
+            day: currentDay,
+            title: line,
+            hour: null,
+            minute: null
+          });
+        }
+      }
+    });
 
     const now = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
     const linesOut = [
@@ -44,25 +64,23 @@ exports.handler = async function(event, context) {
       'X-WR-TIMEZONE:' + timezone
     ];
 
-    for (const event of events) {
+    events.forEach(event => {
       const uid = Math.random().toString(36).substring(2) + '@pdfcalendar';
       linesOut.push('BEGIN:VEVENT');
       linesOut.push('UID:' + uid);
       linesOut.push('DTSTAMP:' + now);
-
-      const dateStr = `202502${String(event.day).padStart(2, '0')}`;
-      if (event.hour != null) {
-        const dt = dateStr + 'T' + String(event.hour).padStart(2, '0') + '00' + '00';
-        linesOut.push(`DTSTART;TZID=${timezone}:${dt}`);
-        linesOut.push(`DTEND;TZID=${timezone}:${dt}`);
+      const dateStr = `202503${String(event.day).padStart(2, '0')}`;
+      if (event.hour !== null) {
+        const timeStr = `${String(event.hour).padStart(2, '0')}${String(event.minute).padStart(2, '0')}00`;
+        linesOut.push(`DTSTART;TZID=${timezone}:${dateStr}T${timeStr}`);
+        linesOut.push(`DTEND;TZID=${timezone}:${dateStr}T${timeStr}`);
       } else {
         linesOut.push(`DTSTART;VALUE=DATE:${dateStr}`);
         linesOut.push(`DTEND;VALUE=DATE:${dateStr}`);
       }
-
       linesOut.push('SUMMARY:' + event.title);
       linesOut.push('END:VEVENT');
-    }
+    });
 
     linesOut.push('END:VCALENDAR');
 
@@ -74,7 +92,6 @@ exports.handler = async function(event, context) {
       },
       body: linesOut.join('\r\n')
     };
-
   } catch (err) {
     return {
       statusCode: 500,
