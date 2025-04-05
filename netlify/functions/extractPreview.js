@@ -21,11 +21,18 @@ exports.handler = async function(event, context) {
     let currentMonth = "02";
 
     const timeApmRegex = /^(\d{1,2})(A|P)\s+(.+)/i;
+    const dayOnlyRegex = /^\d{1,2}$/;
+    const knownDayPrefixRegex = /^\d{1,2}\s+(\d{1,2}[AP])\s+(.+)/i;
 
     rawLines.forEach((line, index) => {
       const entry = { line: line, matched: false, result: null, index: index + 1 };
 
       let match;
+      if ((match = line.match(dayOnlyRegex))) {
+        currentDay = parseInt(match[0]);
+        return;
+      }
+
       if ((match = line.match(timeApmRegex))) {
         let [, hour, ampm, title] = match;
         hour = parseInt(hour);
@@ -44,12 +51,12 @@ exports.handler = async function(event, context) {
         return;
       }
 
-      const dayMatch = line.match(/^\d{1,2}$/);
-      if (dayMatch) {
-        currentDay = parseInt(dayMatch[0]);
+      if ((match = line.match(knownDayPrefixRegex))) {
+        // line looks like "2 9A Good News", skip because likely day mistake
         return;
       }
 
+      // All day item fallback
       if (currentDay && line && !line.match(/^(\d{1,2}[AP])\s+/i)) {
         entry.matched = true;
         entry.result = {
