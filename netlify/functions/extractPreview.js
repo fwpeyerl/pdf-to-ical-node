@@ -23,22 +23,21 @@ exports.handler = async function(event, context) {
     const timeApmRegex = /^(\d{1,2})(A|P)\s+(.+)/i;
     const dayOnlyRegex = /^\d{1,2}$/;
     const splitDayAndEventRegex = /^(\d{1,2})\s+(\d{1,2})(A|P)\s+(.+)/i;
+    const splitDayAllDayRegex = /^(\d{1,2})\s+(.+)/; // e.g. "14 Daily puzzler"
 
     rawLines.forEach((line, index) => {
       const entry = { line, matched: false, result: null, index: index + 1 };
 
-      // Special line like "2 9A Good News"
-      const splitMatch = line.match(splitDayAndEventRegex);
-      if (splitMatch) {
-        const [, dayStr, hourStr, ampm, title] = splitMatch;
-        const baseDay = parseInt(dayStr);
+      // Case: "14 9A Good News" → set day=14, event goes to day=15
+      const timeSplit = line.match(splitDayAndEventRegex);
+      if (timeSplit) {
+        const [, baseDayStr, hourStr, ampm, title] = timeSplit;
+        const baseDay = parseInt(baseDayStr);
         let hour = parseInt(hourStr);
         if (ampm.toUpperCase() === "P" && hour < 12) hour += 12;
         if (ampm.toUpperCase() === "A" && hour === 12) hour = 0;
 
-        // Set currentDay to the next day (base + 1) and assign event to that day
-        currentDay = baseDay + 1;
-
+        currentDay = baseDay + 1; // Event goes to next day
         entry.matched = true;
         entry.result = {
           month: currentMonth,
@@ -52,14 +51,35 @@ exports.handler = async function(event, context) {
         return;
       }
 
-      // Set the currentDay if it's a pure number line
+      // Case: "14 Daily puzzler" → set day=14, event is all-day on day=15
+      const alldaySplit = line.match(splitDayAllDayRegex);
+      if (alldaySplit && !timeApmRegex.test(line)) {
+        const possibleDay = parseInt(alldaySplit[1]);
+        if (!isNaN(possibleDay) && possibleDay >= 1 && possibleDay <= 31) {
+          currentDay = possibleDay + 1; // Advance day
+          const title = alldaySplit[2].trim();
+          entry.matched = true;
+          entry.result = {
+            month: currentMonth,
+            day: currentDay,
+            title,
+            hour: null,
+            minute: null,
+            location: ""
+          };
+          lines.push(entry);
+          return;
+        }
+      }
+
+      // Line is just a number → treat as new day header
       const dayMatch = line.match(dayOnlyRegex);
       if (dayMatch) {
         currentDay = parseInt(dayMatch[0]);
         return;
       }
 
-      // Timed event like "9A Good News"
+      // Timed event
       const match = line.match(timeApmRegex);
       if (match) {
         let [, hour, ampm, title] = match;
