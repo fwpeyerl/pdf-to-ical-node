@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>PDF to iCal Debug</title>
+  <title>PDF to iCal - Filtered</title>
   <style>
     body { font-family: sans-serif; padding: 20px; }
     #loading { display: none; color: green; font-weight: bold; }
@@ -12,7 +12,7 @@
   </style>
 </head>
 <body>
-  <h1>Upload Calendar PDF</h1>
+  <h1>Upload Calendar PDF (February-style only)</h1>
   <input type="file" id="pdfInput" accept="application/pdf" required /><br>
   <label for="timezone">Timezone:</label>
   <select id="timezone">
@@ -60,8 +60,9 @@ document.getElementById("previewBtn").addEventListener("click", async () => {
     const tbody = document.querySelector("#eventTable tbody");
     tbody.innerHTML = "";
     parsed.forEach(e => {
+      const timeStr = e.hour !== null ? `${e.hour}:${String(e.minute).padStart(2, '0')}` : "All Day";
       const row = document.createElement("tr");
-      row.innerHTML = `<td>${e.month}</td><td>${e.day}</td><td>${e.hour}:${String(e.minute).padStart(2, '0')}</td><td>${e.title}</td><td>${e.location}</td>`;
+      row.innerHTML = `<td>${e.month}</td><td>${e.day}</td><td>${timeStr}</td><td>${e.title}</td><td>${e.location}</td>`;
       tbody.appendChild(row);
     });
 
