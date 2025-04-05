@@ -1,5 +1,10 @@
 const { Buffer } = require('buffer');
 const pdf = require('pdf-parse');
+const locationMap = {
+  MC: "Memory Care",
+  FA: "Family Area",
+  TS: "Therapy Suite"
+};
 
 exports.handler = async function(event, context) {
   try {
@@ -9,48 +14,72 @@ exports.handler = async function(event, context) {
     const text = data.text;
 
     const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
-
     const events = [];
+
     let currentDay = null;
 
-    lines.forEach(line => {
-      const dayAtEnd = line.match(/(.*)\s+(\d{1,2})$/);
-      const dayAtStart = line.match(/^(\d{1,2}):\s+(.*)/);
-      const timeEventPattern = /^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?[:\s-]+(.+)/i;
+    const timeApmRegex = /^(\d{1,2})(A|P)\s+(.+)/i;
+    const timeClockRegex = /(\d{1,2}(?::\d{2})?)\s+(.+?)\s+\[(\w+)\]\s+(\d{1,2})$/;
+    const timeClockLooseRegex = /(\d{1,2}(?::\d{2})?)\s+(.+?)\s+\[(\w+)\]$/;
 
-      if (dayAtEnd) {
-        currentDay = parseInt(dayAtEnd[2]);
-        line = dayAtEnd[1].trim();
+    lines.forEach((line, idx) => {
+      let match = null;
+
+      // Match "9A Good News" style (Feb)
+      if ((match = line.match(timeApmRegex))) {
+        let [, hour, ampm, title] = match;
+        hour = parseInt(hour);
+        if (ampm.toUpperCase() === 'P' && hour < 12) hour += 12;
+        if (ampm.toUpperCase() === 'A' && hour === 12) hour = 0;
+        events.push({
+          day: currentDay,
+          title: title.trim(),
+          hour,
+          minute: 0,
+          location: null
+        });
+        return;
       }
 
-      if (dayAtStart) {
-        currentDay = parseInt(dayAtStart[1]);
-        line = dayAtStart[2];
+      // Match "1:30 Title [MC] 1" style (March)
+      if ((match = line.match(timeClockRegex))) {
+        let [_, time, title, locCode, day] = match;
+        let [hour, minute = '00'] = time.split(':');
+        hour = parseInt(hour);
+        minute = parseInt(minute);
+        currentDay = parseInt(day);
+        events.push({
+          day: currentDay,
+          title: title.trim(),
+          hour,
+          minute,
+          location: locationMap[locCode] || locCode
+        });
+        return;
       }
 
-      if (currentDay !== null && line) {
-        const timeMatch = line.match(timeEventPattern);
-        if (timeMatch) {
-          let [ , hour, minute = '00', ampm, title ] = timeMatch;
-          hour = parseInt(hour);
-          if (ampm) {
-            if (ampm.toUpperCase() === 'PM' && hour < 12) hour += 12;
-            if (ampm.toUpperCase() === 'AM' && hour === 12) hour = 0;
-          }
+      // Match "1:30 Title [MC]" style (loose)
+      if ((match = line.match(timeClockLooseRegex))) {
+        let [_, time, title, locCode] = match;
+        let [hour, minute = '00'] = time.split(':');
+        hour = parseInt(hour);
+        minute = parseInt(minute);
+        if (currentDay !== null) {
           events.push({
             day: currentDay,
             title: title.trim(),
             hour,
-            minute: parseInt(minute)
-          });
-        } else {
-          events.push({
-            day: currentDay,
-            title: line,
-            hour: null,
-            minute: null
+            minute,
+            location: locationMap[locCode] || locCode
           });
         }
+        return;
+      }
+
+      // Match lines ending in a number (used for currentDay)
+      const dayAtEnd = line.match(/(.*)\s+(\d{1,2})$/);
+      if (dayAtEnd) {
+        currentDay = parseInt(dayAtEnd[2]);
       }
     });
 
@@ -65,12 +94,16 @@ exports.handler = async function(event, context) {
     ];
 
     events.forEach(event => {
+      if (!event.day || !event.title) return;
+
+      const dateStr = `202503${String(event.day).padStart(2, '0')}`;
       const uid = Math.random().toString(36).substring(2) + '@pdfcalendar';
+
       linesOut.push('BEGIN:VEVENT');
       linesOut.push('UID:' + uid);
       linesOut.push('DTSTAMP:' + now);
-      const dateStr = `202503${String(event.day).padStart(2, '0')}`;
-      if (event.hour !== null) {
+
+      if (event.hour != null) {
         const timeStr = `${String(event.hour).padStart(2, '0')}${String(event.minute).padStart(2, '0')}00`;
         linesOut.push(`DTSTART;TZID=${timezone}:${dateStr}T${timeStr}`);
         linesOut.push(`DTEND;TZID=${timezone}:${dateStr}T${timeStr}`);
@@ -78,7 +111,11 @@ exports.handler = async function(event, context) {
         linesOut.push(`DTSTART;VALUE=DATE:${dateStr}`);
         linesOut.push(`DTEND;VALUE=DATE:${dateStr}`);
       }
+
       linesOut.push('SUMMARY:' + event.title);
+      if (event.location) {
+        linesOut.push('LOCATION:' + event.location);
+      }
       linesOut.push('END:VEVENT');
     });
 
