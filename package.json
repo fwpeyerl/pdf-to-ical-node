@@ -1,0 +1,7 @@
+{
+  "name": "pdf-to-ical-node",
+  "version": "1.0.0",
+  "description": "PDF to iCal Netlify function in Node.js",
+  "main": "index.js",
+  "license": "MIT"
+}

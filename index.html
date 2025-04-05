@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Convert PDF Calendar to iCal</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      padding: 2rem;
+      background: #f9f9f9;
+    }
+    .container {
+      background: white;
+      padding: 2rem;
+      border-radius: 8px;
+      max-width: 500px;
+      margin: auto;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #333;
+    }
+    .btn {
+      margin-top: 1rem;
+      padding: 0.5rem 1.5rem;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    .btn:hover {
+      background: #0056b3;
+    }
+    #downloadLink {
+      margin-top: 2rem;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Upload PDF Calendar</h1>
+    <p>Convert your monthly PDF activity calendar to an iCal (.ics) file.</p>
+    <form id="uploadForm">
+      <input type="file" id="pdfInput" accept="application/pdf" required />
+      <br>
+      <button class="btn" type="submit">Convert to iCal</button>
+    </form>
+    <a id="downloadLink" class="btn" href="#" download="converted-calendar.ics">Download iCal File</a>
+  </div>
+  <script>
+    function fileToBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const base64String = reader.result.split(",")[1];
+          resolve(base64String);
+        };
+        reader.onerror = (error) => reject(error);
+        reader.readAsDataURL(file);
+      });
+    }
+
+    document.getElementById("uploadForm").addEventListener("submit", async function (e) {
+      e.preventDefault();
+      const fileInput = document.getElementById("pdfInput");
+      const file = fileInput.files[0];
+      if (!file) {
+        alert("Please choose a PDF file first.");
+        return;
+      }
+      try {
+        const base64 = await fileToBase64(file);
+        const response = await fetch("/.netlify/functions/pdfToIcal", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ body: base64 })
+        });
+        if (!response.ok) {
+          throw new Error("Server error: " + response.statusText);
+        }
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const downloadLink = document.getElementById("downloadLink");
+        downloadLink.href = url;
+        downloadLink.style.display = "inline-block";
+      } catch (error) {
+        console.error("Conversion error:", error.message);
+        alert("Error: " + error.message);
+      }
+    });
+  </script>
+</body>
+</html>
