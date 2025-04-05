@@ -2,59 +2,85 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>PDF to iCal</title>
+  <title>PDF to iCal Preview</title>
   <style>
     body { font-family: sans-serif; padding: 20px; }
     #loading { display: none; color: green; font-weight: bold; }
+    table { border-collapse: collapse; margin-top: 10px; }
+    td, th { border: 1px solid #ccc; padding: 4px 8px; }
   </style>
 </head>
 <body>
   <h1>Upload Calendar PDF</h1>
-  <form id="uploadForm">
-    <input type="file" id="pdfInput" accept="application/pdf" required /><br>
-    <label for="timezone">Timezone:</label>
-    <select id="timezone">
-      <option value="America/Chicago">America/Chicago</option>
-      <option value="America/New_York">America/New_York</option>
-      <option value="America/Denver">America/Denver</option>
-      <option value="America/Los_Angeles">America/Los_Angeles</option>
-    </select><br>
-    <button type="submit">Convert</button>
-  </form>
-  <p id="loading">Converting calendar... please wait.</p>
-  <a id="downloadLink" href="#" style="display:none;" download="converted-calendar.ics">Download iCal</a>
+  <input type="file" id="pdfInput" accept="application/pdf" required /><br>
+  <label for="timezone">Timezone:</label>
+  <select id="timezone">
+    <option value="America/Chicago">America/Chicago</option>
+    <option value="America/New_York">America/New_York</option>
+    <option value="America/Denver">America/Denver</option>
+    <option value="America/Los_Angeles">America/Los_Angeles</option>
+  </select><br><br>
+  <button id="previewBtn">Preview Events</button>
+  <p id="loading">Processing... please wait.</p>
+  <table id="eventTable" style="display:none;">
+    <thead>
+      <tr><th>Month</th><th>Day</th><th>Time</th><th>Title</th><th>Location</th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+  <br>
+  <button id="downloadBtn" style="display:none;">Convert to iCal</button>
 <script>
-document.getElementById("pdfInput").addEventListener("change", function() {
-  document.getElementById("downloadLink").style.display = "none";
+let parsedEvents = [];
+
+document.getElementById("pdfInput").addEventListener("change", () => {
+  document.getElementById("eventTable").style.display = "none";
+  document.getElementById("downloadBtn").style.display = "none";
 });
-document.getElementById("uploadForm").addEventListener("submit", async function(e) {
-  e.preventDefault();
+
+document.getElementById("previewBtn").addEventListener("click", async () => {
   const file = document.getElementById("pdfInput").files[0];
-  const timezone = document.getElementById("timezone").value;
+  if (!file) return alert("Please select a PDF first.");
   const reader = new FileReader();
   document.getElementById("loading").style.display = "block";
-  document.getElementById("downloadLink").style.display = "none";
 
-  reader.onload = async function() {
+  reader.onload = async function () {
     const base64 = reader.result.split(",")[1];
-    try {
-      const response = await fetch("/.netlify/functions/pdfToIcal", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body: base64, timezone })
-      });
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.getElementById("downloadLink");
-      link.href = url;
-      link.style.display = "inline-block";
-    } catch (err) {
-      alert("An error occurred while converting your calendar.");
-    } finally {
-      document.getElementById("loading").style.display = "none";
-    }
+    const response = await fetch("/.netlify/functions/extractPreview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body: base64 })
+    });
+    parsedEvents = await response.json();
+    const tbody = document.querySelector("#eventTable tbody");
+    tbody.innerHTML = "";
+    parsedEvents.forEach(e => {
+      const row = document.createElement("tr");
+      row.innerHTML = `<td>${e.month}</td><td>${e.day}</td><td>${e.hour}:${String(e.minute).padStart(2, '0')}</td><td>${e.title}</td><td>${e.location}</td>`;
+      tbody.appendChild(row);
+    });
+    document.getElementById("eventTable").style.display = "table";
+    document.getElementById("downloadBtn").style.display = "inline-block";
+    document.getElementById("loading").style.display = "none";
   };
   reader.readAsDataURL(file);
+});
+
+document.getElementById("downloadBtn").addEventListener("click", async () => {
+  const timezone = document.getElementById("timezone").value;
+  const response = await fetch("/.netlify/functions/convertToIcal", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ events: parsedEvents, timezone })
+  });
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "converted-calendar.ics";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
 });
 </script>
 </body>
