@@ -18,10 +18,12 @@ exports.handler = async function(event, context) {
     const events = [];
     const seen = new Set();
     let currentDay = null;
+    let month = "03";
 
     const timeApmRegex = /^(\d{1,2})(A|P)\s+(.+)/i;
     const timeWithLocationDayRegex = /^(\d{1,2})(?::(\d{2}))?\s+(.+?)\s+\[(\w{2})\]\s+(\d{1,2})$/;
     const timeWithLocationLooseRegex = /^(\d{1,2})(?::(\d{2}))?\s+(.+?)\s+\[(\w{2})\]$/;
+    const genericTimeLineRegex = /^(\d{1,2})(?::(\d{2}))?\s+(.+)/;
 
     for (let line of lines) {
       let match;
@@ -31,13 +33,14 @@ exports.handler = async function(event, context) {
         hour = parseInt(hour);
         if (ampm.toUpperCase() === "P" && hour < 12) hour += 12;
         if (ampm.toUpperCase() === "A" && hour === 12) hour = 0;
+        month = "02";
         if (currentDay) {
           const key = `feb-${currentDay}-${title}`;
           if (!seen.has(key)) {
             seen.add(key);
             events.push({
               day: currentDay,
-              month: "02",
+              month,
               title: title.trim(),
               hour,
               minute: 0,
@@ -89,7 +92,28 @@ exports.handler = async function(event, context) {
         continue;
       }
 
-      const dayMatch = line.match(/(\d{1,2})$/);
+      if ((match = line.match(genericTimeLineRegex))) {
+        let [, hour, minute = "00", title] = match;
+        hour = parseInt(hour);
+        minute = parseInt(minute);
+        if (currentDay) {
+          const key = `generic-${currentDay}-${title}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            events.push({
+              day: currentDay,
+              month,
+              title: title.trim(),
+              hour,
+              minute,
+              location: null
+            });
+          }
+        }
+        continue;
+      }
+
+      const dayMatch = line.match(/\b(\d{1,2})$/);
       if (dayMatch) currentDay = parseInt(dayMatch[1]);
     }
 
