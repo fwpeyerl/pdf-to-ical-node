@@ -10,36 +10,48 @@ exports.handler = async function(event, context) {
     const { body: base64 } = JSON.parse(event.body);
     const buffer = Buffer.from(base64, 'base64');
     const data = await pdf(buffer);
-    const rawLines = data.text.split(/\n|\r|\r\n/).map(l => l.trim()).filter(Boolean);
+    const rawLines = data.text.split(/\n|\r|\r\n/).map((line, idx) => ({
+      text: line,
+      raw: line,
+      index: idx,
+      indent: line.match(/^\s+/)?.[0]?.length || 0
+    })).filter(l => l.text.trim());
 
-    if (!isFebruaryStyle(rawLines)) {
+    if (!isFebruaryStyle(rawLines.map(l => l.text))) {
       return { statusCode: 200, body: JSON.stringify({ parsed: [], debug: ["Not a supported calendar format."] }) };
     }
 
-    const lines = [];
+    const entries = [];
     let currentDay = null;
     let currentMonth = "02";
+    let lastEvent = null;
 
     const timeApmRegex = /^(\d{1,2})(A|P)\s+(.+)/i;
+    const splitDayAndTimeRegex = /^(\d{1,2})\s+(\d{1,2})(A|P)\s+(.+)/i;
+    const splitDayAllDayRegex = /^(\d{1,2})\s+(.+)/;
     const dayOnlyRegex = /^\d{1,2}$/;
-    const splitDayAndEventRegex = /^(\d{1,2})\s+(\d{1,2})(A|P)\s+(.+)/i;
-    const splitDayAllDayRegex = /^(\d{1,2})\s+(.+)/; // e.g. "14 Daily puzzler"
 
-    rawLines.forEach((line, index) => {
-      const entry = { line, matched: false, result: null, index: index + 1 };
+    for (let i = 0; i < rawLines.length; i++) {
+      const line = rawLines[i].text.trim();
+      const indent = rawLines[i].indent;
 
-      // Case: "14 9A Good News" → set day=14, event goes to day=15
-      const timeSplit = line.match(splitDayAndEventRegex);
-      if (timeSplit) {
-        const [, baseDayStr, hourStr, ampm, title] = timeSplit;
+      // Indented lines = continuation of previous title
+      if (indent > 1 && lastEvent) {
+        lastEvent.title += " " + line.trim();
+        continue;
+      }
+
+      const splitTimeMatch = line.match(splitDayAndTimeRegex);
+      if (splitTimeMatch) {
+        const [, baseDayStr, hourStr, ampm, title] = splitTimeMatch;
         const baseDay = parseInt(baseDayStr);
         let hour = parseInt(hourStr);
         if (ampm.toUpperCase() === "P" && hour < 12) hour += 12;
         if (ampm.toUpperCase() === "A" && hour === 12) hour = 0;
 
-        currentDay = baseDay + 1; // Event goes to next day
-        entry.matched = true;
-        entry.result = {
+        // Set currentDay to next and assign this to next
+        currentDay = baseDay + 1;
+        const evt = {
           month: currentMonth,
           day: currentDay,
           title: title.trim(),
@@ -47,79 +59,76 @@ exports.handler = async function(event, context) {
           minute: 0,
           location: ""
         };
-        lines.push(entry);
-        return;
+        entries.push(evt);
+        lastEvent = evt;
+        continue;
       }
 
-      // Case: "14 Daily puzzler" → set day=14, event is all-day on day=15
-      const alldaySplit = line.match(splitDayAllDayRegex);
-      if (alldaySplit && !timeApmRegex.test(line)) {
-        const possibleDay = parseInt(alldaySplit[1]);
-        if (!isNaN(possibleDay) && possibleDay >= 1 && possibleDay <= 31) {
-          currentDay = possibleDay + 1; // Advance day
-          const title = alldaySplit[2].trim();
-          entry.matched = true;
-          entry.result = {
+      // All-day with embedded date like "1 Daily puzzler"
+      const splitAllDayMatch = line.match(splitDayAllDayRegex);
+      if (splitAllDayMatch && !timeApmRegex.test(line)) {
+        const possibleDay = parseInt(splitAllDayMatch[1]);
+        const rest = splitAllDayMatch[2].trim();
+        if (!isNaN(possibleDay)) {
+          const effectiveDay = currentDay === null ? possibleDay : possibleDay + 1;
+          currentDay = possibleDay;
+          const evt = {
             month: currentMonth,
-            day: currentDay,
-            title,
+            day: effectiveDay,
+            title: rest,
             hour: null,
             minute: null,
             location: ""
           };
-          lines.push(entry);
-          return;
+          entries.push(evt);
+          lastEvent = evt;
+          continue;
         }
       }
 
-      // Line is just a number → treat as new day header
-      const dayMatch = line.match(dayOnlyRegex);
-      if (dayMatch) {
-        currentDay = parseInt(dayMatch[0]);
-        return;
+      // Just a day number
+      if (dayOnlyRegex.test(line)) {
+        currentDay = parseInt(line);
+        continue;
       }
 
-      // Timed event
-      const match = line.match(timeApmRegex);
-      if (match) {
-        let [, hour, ampm, title] = match;
-        hour = parseInt(hour);
+      const timeMatch = line.match(timeApmRegex);
+      if (timeMatch && currentDay !== null) {
+        let [, hourStr, ampm, title] = timeMatch;
+        let hour = parseInt(hourStr);
         if (ampm.toUpperCase() === "P" && hour < 12) hour += 12;
         if (ampm.toUpperCase() === "A" && hour === 12) hour = 0;
-        if (currentDay !== null) {
-          entry.matched = true;
-          entry.result = {
-            month: currentMonth,
-            day: currentDay,
-            title: title.trim(),
-            hour,
-            minute: 0,
-            location: ""
-          };
-          lines.push(entry);
-        }
-        return;
-      }
 
-      // All-day event
-      if (currentDay !== null && line && !line.match(timeApmRegex)) {
-        entry.matched = true;
-        entry.result = {
+        const evt = {
           month: currentMonth,
           day: currentDay,
-          title: line.trim(),
+          title: title.trim(),
+          hour,
+          minute: 0,
+          location: ""
+        };
+        entries.push(evt);
+        lastEvent = evt;
+        continue;
+      }
+
+      if (currentDay !== null) {
+        const evt = {
+          month: currentMonth,
+          day: currentDay,
+          title: line,
           hour: null,
           minute: null,
           location: ""
         };
-        lines.push(entry);
+        entries.push(evt);
+        lastEvent = evt;
       }
-    });
+    }
 
-    const parsed = lines.filter(e => e.matched).map(e => e.result);
     return {
       statusCode: 200,
-      body: JSON.stringify({ parsed, debug: lines.slice(0, 60) })
+      body: JSON.stringify({ parsed: entries })
     };
   } catch (err) {
     return {
