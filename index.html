@@ -24,6 +24,9 @@
   <p id="loading">Converting calendar... please wait.</p>
   <a id="downloadLink" href="#" style="display:none;" download="converted-calendar.ics">Download iCal</a>
 <script>
+document.getElementById("pdfInput").addEventListener("change", function() {
+  document.getElementById("downloadLink").style.display = "none";
+});
 document.getElementById("uploadForm").addEventListener("submit", async function(e) {
   e.preventDefault();
   const file = document.getElementById("pdfInput").files[0];

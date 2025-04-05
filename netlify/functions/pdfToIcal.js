@@ -14,14 +14,14 @@ exports.handler = async function(event, context) {
     const data = await pdf(buffer);
     const text = data.text.replace(/\r/g, '').replace(/\s{2,}/g, ' ').trim();
 
-    const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
+    const lines = text.split(/\n|\r|\r\n/).map(line => line.trim()).filter(Boolean);
     const events = [];
     const seen = new Set();
     let currentDay = null;
 
     const timeApmRegex = /^(\d{1,2})(A|P)\s+(.+)/i;
-    const timeWithLocationDayRegex = /^(\d{1,2})(?::(\d{2}))?\s+(.+?)\s+\[(\w+)\]\s+(\d{1,2})$/;
-    const timeWithLocationLooseRegex = /^(\d{1,2})(?::(\d{2}))?\s+(.+?)\s+\[(\w+)\]$/;
+    const timeWithLocationDayRegex = /^(\d{1,2})(?::(\d{2}))?\s+(.+?)\s+\[(\w{2})\]\s+(\d{1,2})$/;
+    const timeWithLocationLooseRegex = /^(\d{1,2})(?::(\d{2}))?\s+(.+?)\s+\[(\w{2})\]$/;
 
     for (let line of lines) {
       let match;
