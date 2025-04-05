@@ -19,82 +19,61 @@ exports.handler = async function(event, context) {
     const seen = new Set();
 
     let currentDay = null;
+    let currentMonth = "03";  // Default to March, updated dynamically later
 
     const timeApmRegex = /^(\d{1,2})(A|P)\s+(.+)/i;
-    const timeClockRegex = /(\d{1,2}(?::\d{2})?)\s+(.+?)\s+\[(\w+)\]\s+(\d{1,2})$/;
-    const timeClockLooseRegex = /(\d{1,2}(?::\d{2})?)\s+(.+?)\s+\[(\w+)\]$/;
+    const timeColonRegex = /^(\d{1,2})(?::(\d{2}))?\s+(.+?)(?:\s+\[(\w+)\])?(?:\s+(\d{1,2}))?$/;
 
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      let match = null;
+    for (let line of lines) {
+      let match;
 
+      // Detect and update current day from end of line if present
+      const dayAtEnd = line.match(/\b(\d{1,2})$/);
+      if (dayAtEnd) currentDay = parseInt(dayAtEnd[1]);
+
+      // Try matching A/P format (February style)
       if ((match = line.match(timeApmRegex))) {
         let [, hour, ampm, title] = match;
         hour = parseInt(hour);
-        if (ampm.toUpperCase() === 'P' && hour < 12) hour += 12;
-        if (ampm.toUpperCase() === 'A' && hour === 12) hour = 0;
-
-        const dateKey = `feb-${currentDay}-${title}`;
-        if (!seen.has(dateKey) && currentDay) {
-          seen.add(dateKey);
-          events.push({
-            month: "02",
-            day: currentDay,
-            title: title.trim(),
-            hour,
-            minute: 0,
-            location: null
-          });
-        }
-        continue;
-      }
-
-      if ((match = line.match(timeClockRegex))) {
-        let [, time, title, locCode, day] = match;
-        const [hourStr, minStr = '00'] = time.split(':');
-        const hour = parseInt(hourStr);
-        const minute = parseInt(minStr);
-        currentDay = parseInt(day);
-        const key = `mar-${currentDay}-${title}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          events.push({
-            month: "03",
-            day: currentDay,
-            title: title.trim(),
-            hour,
-            minute,
-            location: locationMap[locCode] || locCode
-          });
-        }
-        continue;
-      }
-
-      if ((match = line.match(timeClockLooseRegex))) {
-        let [, time, title, locCode] = match;
-        const [hourStr, minStr = '00'] = time.split(':');
-        const hour = parseInt(hourStr);
-        const minute = parseInt(minStr);
+        if (ampm.toUpperCase() === "P" && hour < 12) hour += 12;
+        if (ampm.toUpperCase() === "A" && hour === 12) hour = 0;
         if (currentDay) {
-          const key = `mar-${currentDay}-${title}`;
+          const key = `feb-${currentDay}-${title}`;
           if (!seen.has(key)) {
             seen.add(key);
             events.push({
-              month: "03",
               day: currentDay,
-              title: title.trim(),
+              month: "02",
+              title: title,
               hour,
-              minute,
-              location: locationMap[locCode] || locCode
+              minute: 0,
+              location: null
             });
           }
         }
         continue;
       }
 
-      const dayMatch = line.match(/(.*)\s+(\d{1,2})$/);
-      if (dayMatch) {
-        currentDay = parseInt(dayMatch[2]);
+      // Try matching 1:30 style format with optional location and day
+      if ((match = line.match(timeColonRegex))) {
+        let [, hour, minute = "00", title, locCode, day] = match;
+        hour = parseInt(hour);
+        minute = parseInt(minute);
+        if (day) currentDay = parseInt(day);
+        if (!currentDay) continue;
+        const key = `mar-${currentDay}-${title}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          events.push({
+            day: currentDay,
+            month: "03",
+            title: title,
+            hour,
+            minute,
+            location: locCode ? locationMap[locCode] || locCode : null
+          });
+        }
+        continue;
       }
     }
 
@@ -109,7 +88,6 @@ exports.handler = async function(event, context) {
     ];
 
     for (const event of events) {
-      if (!event.day || !event.title) continue;
       const dateStr = `2025${event.month}${String(event.day).padStart(2, '0')}`;
       const uid = Math.random().toString(36).substring(2) + '@pdfcalendar';
 
@@ -117,15 +95,9 @@ exports.handler = async function(event, context) {
       linesOut.push('UID:' + uid);
       linesOut.push('DTSTAMP:' + now);
 
-      if (event.hour != null) {
-        const timeStr = `${String(event.hour).padStart(2, '0')}${String(event.minute).padStart(2, '0')}00`;
-        linesOut.push(`DTSTART;TZID=${timezone}:${dateStr}T${timeStr}`);
-        linesOut.push(`DTEND;TZID=${timezone}:${dateStr}T${timeStr}`);
-      } else {
-        linesOut.push(`DTSTART;VALUE=DATE:${dateStr}`);
-        linesOut.push(`DTEND;VALUE=DATE:${dateStr}`);
-      }
-
+      const timeStr = `${String(event.hour).padStart(2, '0')}${String(event.minute).padStart(2, '0')}00`;
+      linesOut.push(`DTSTART;TZID=${timezone}:${dateStr}T${timeStr}`);
+      linesOut.push(`DTEND;TZID=${timezone}:${dateStr}T${timeStr}`);
       linesOut.push('SUMMARY:' + event.title);
       if (event.location) {
         linesOut.push('LOCATION:' + event.location);
