@@ -36,7 +36,6 @@ exports.handler = async function(event, context) {
     const splitDayAllDayRegex = /^(\d{1,2})\s+(.+)/;
     const dayOnlyRegex = /^\d{1,2}$/;
 
-    // Town Hall calendar support
     if (isTownHallStyle(rawText)) {
       const paragraphs = rawText.split(/\n{2,}/).filter(p => p.length > 10);
       for (let i = 0; i < paragraphs.length && i < 31; i++) {
@@ -49,10 +48,10 @@ exports.handler = async function(event, context) {
           location: ""
         });
       }
+      return { statusCode: 200, body: JSON.stringify({ parsed: results }) };
     }
 
-    // Activity Connection calendar - currently unsupported
-    else if (isUnsupportedActivityCalendar(lines)) {
+    if (isUnsupportedActivityCalendar(lines)) {
       return {
         statusCode: 200,
         body: JSON.stringify({
@@ -62,19 +61,16 @@ exports.handler = async function(event, context) {
       };
     }
 
-    // February (Quiltt-style) calendar parsing
-    else if (isFebruaryStyle(lines)) {
+    if (isFebruaryStyle(lines)) {
       for (let i = 0; i < rawLines.length; i++) {
         const line = rawLines[i].text.trim();
         const indent = rawLines[i].indent;
 
-        // Indented lines continue the previous event
         if (indent > 1 && lastEvent) {
           lastEvent.title += " " + line;
           continue;
         }
 
-        // Split line like "2 9A Good News"
         const splitTimeMatch = line.match(splitDayAndTimeRegex);
         if (splitTimeMatch) {
           const [, baseDayStr, hourStr, ampm, title] = splitTimeMatch;
@@ -96,7 +92,6 @@ exports.handler = async function(event, context) {
           continue;
         }
 
-        // Split all-day line like "2 Daily puzzler"
         const alldaySplit = line.match(splitDayAllDayRegex);
         if (alldaySplit && !timeApmRegex.test(line)) {
           const day = parseInt(alldaySplit[1]);
@@ -118,13 +113,11 @@ exports.handler = async function(event, context) {
           }
         }
 
-        // Day header
         if (dayOnlyRegex.test(line)) {
           currentDay = parseInt(line);
           continue;
         }
 
-        // Timed event like "10A Move it!"
         const timeMatch = line.match(timeApmRegex);
         if (timeMatch && currentDay) {
           let [, hourStr, ampm, title] = timeMatch;
@@ -144,7 +137,6 @@ exports.handler = async function(event, context) {
           continue;
         }
 
-        // All-day fallback
         if (currentDay && line) {
           const evt = {
             month: currentMonth,
@@ -158,16 +150,17 @@ exports.handler = async function(event, context) {
           lastEvent = evt;
         }
       }
+      return { statusCode: 200, body: JSON.stringify({ parsed: results }) };
     }
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ parsed: results })
+      body: JSON.stringify({ parsed: [], debug: ["Calendar format not recognized."] })
     };
   } catch (err) {
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: err.message })
+      body: JSON.stringify({ error: err.message || "Unknown error" })
     };
   }
 };
