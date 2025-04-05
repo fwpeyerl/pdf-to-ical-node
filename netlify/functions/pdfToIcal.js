@@ -12,31 +12,28 @@ exports.handler = async function(event, context) {
     const { body: base64, timezone } = JSON.parse(event.body);
     const buffer = Buffer.from(base64, 'base64');
     const data = await pdf(buffer);
-    const text = data.text;
+    const text = data.text.replace(/\r/g, '').replace(/  +/g, ' ');
 
     const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
     const events = [];
     const seen = new Set();
 
     let currentDay = null;
-    let currentMonth = "03";  // Default to March, updated dynamically later
 
     const timeApmRegex = /^(\d{1,2})(A|P)\s+(.+)/i;
-    const timeColonRegex = /^(\d{1,2})(?::(\d{2}))?\s+(.+?)(?:\s+\[(\w+)\])?(?:\s+(\d{1,2}))?$/;
+    const timeLocationDayRegex = /^(\d{1,2})(?::(\d{2}))?\s+(.+?)\s+\[(\w+)\]\s+(\d{1,2})$/;
+    const timeLocationLooseRegex = /^(\d{1,2})(?::(\d{2}))?\s+(.+?)\s+\[(\w+)\]$/;
 
     for (let line of lines) {
       let match;
 
-      // Detect and update current day from end of line if present
-      const dayAtEnd = line.match(/\b(\d{1,2})$/);
-      if (dayAtEnd) currentDay = parseInt(dayAtEnd[1]);
-
-      // Try matching A/P format (February style)
+      // Match format like "9A Good News"
       if ((match = line.match(timeApmRegex))) {
         let [, hour, ampm, title] = match;
         hour = parseInt(hour);
         if (ampm.toUpperCase() === "P" && hour < 12) hour += 12;
         if (ampm.toUpperCase() === "A" && hour === 12) hour = 0;
+
         if (currentDay) {
           const key = `feb-${currentDay}-${title}`;
           if (!seen.has(key)) {
@@ -44,7 +41,7 @@ exports.handler = async function(event, context) {
             events.push({
               day: currentDay,
               month: "02",
-              title: title,
+              title: title.trim(),
               hour,
               minute: 0,
               location: null
@@ -54,26 +51,53 @@ exports.handler = async function(event, context) {
         continue;
       }
 
-      // Try matching 1:30 style format with optional location and day
-      if ((match = line.match(timeColonRegex))) {
+      // Match format like "1:30 Senior Link short clips [MC] 3"
+      if ((match = line.match(timeLocationDayRegex))) {
         let [, hour, minute = "00", title, locCode, day] = match;
         hour = parseInt(hour);
         minute = parseInt(minute);
-        if (day) currentDay = parseInt(day);
-        if (!currentDay) continue;
+        currentDay = parseInt(day);
         const key = `mar-${currentDay}-${title}`;
         if (!seen.has(key)) {
           seen.add(key);
           events.push({
             day: currentDay,
             month: "03",
-            title: title,
+            title: title.trim(),
             hour,
             minute,
-            location: locCode ? locationMap[locCode] || locCode : null
+            location: locationMap[locCode] || locCode
           });
         }
         continue;
+      }
+
+      // Match format like "1:30 1:1 with Sami [MC]" (multi-token titles, no day)
+      if ((match = line.match(timeLocationLooseRegex))) {
+        let [, hour, minute = "00", title, locCode] = match;
+        hour = parseInt(hour);
+        minute = parseInt(minute);
+        if (currentDay) {
+          const key = `mar-${currentDay}-${title}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            events.push({
+              day: currentDay,
+              month: "03",
+              title: title.trim(),
+              hour,
+              minute,
+              location: locationMap[locCode] || locCode
+            });
+          }
+        }
+        continue;
+      }
+
+      // Update currentDay from any trailing day number
+      const dayMatch = line.match(/(\d{1,2})$/);
+      if (dayMatch) {
+        currentDay = parseInt(dayMatch[1]);
       }
     }
 
