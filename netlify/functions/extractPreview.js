@@ -2,7 +2,7 @@ const { Buffer } = require('buffer');
 const pdf = require('pdf-parse');
 
 function isFebruaryStyle(lines) {
-  return lines.some(line => /\d{1,2}[AP]\s+/.test(line)) && lines.some(line => /Daily puzzler|Good News|BINGO/i.test(line));
+  return lines.some(line => /\d{1,2}\s+\d{1,2}(A|P)/.test(line)) || lines.some(line => /9A Good News|Daily puzzler/.test(line));
 }
 
 function isTownHallStyle(text) {
@@ -27,6 +27,7 @@ exports.handler = async function(event, context) {
 
     const lines = rawLines.map(l => l.text.trim());
     const results = [];
+    const debug = [];
     const currentMonth = "02";
     let currentDay = null;
     let lastEvent = null;
@@ -37,6 +38,7 @@ exports.handler = async function(event, context) {
     const dayOnlyRegex = /^\d{1,2}$/;
 
     if (isTownHallStyle(rawText)) {
+      debug.push("Parsed as Town Hall style");
       const paragraphs = rawText.split(/\n{2,}/).filter(p => p.length > 10);
       for (let i = 0; i < paragraphs.length && i < 31; i++) {
         results.push({
@@ -48,20 +50,22 @@ exports.handler = async function(event, context) {
           location: ""
         });
       }
-      return { statusCode: 200, body: JSON.stringify({ parsed: results }) };
+      return { statusCode: 200, body: JSON.stringify({ parsed: results, debug }) };
     }
 
     if (isUnsupportedActivityCalendar(lines)) {
+      debug.push("Unsupported calendar format (Activity Connection style)");
       return {
         statusCode: 200,
         body: JSON.stringify({
           parsed: [],
-          debug: ["Unsupported calendar format (e.g. Activity Connection style)."]
+          debug
         })
       };
     }
 
     if (isFebruaryStyle(lines)) {
+      debug.push("Parsed as February-style calendar");
       for (let i = 0; i < rawLines.length; i++) {
         const line = rawLines[i].text.trim();
         const indent = rawLines[i].indent;
@@ -150,12 +154,13 @@ exports.handler = async function(event, context) {
           lastEvent = evt;
         }
       }
-      return { statusCode: 200, body: JSON.stringify({ parsed: results }) };
+      return { statusCode: 200, body: JSON.stringify({ parsed: results, debug }) };
     }
 
+    debug.push("Calendar format not recognized");
     return {
       statusCode: 200,
-      body: JSON.stringify({ parsed: [], debug: ["Calendar format not recognized."] })
+      body: JSON.stringify({ parsed: [], debug })
     };
   } catch (err) {
     return {
