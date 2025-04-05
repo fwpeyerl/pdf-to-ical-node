@@ -1,6 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><title>PDF to iCal</title></head>
+<head>
+  <meta charset="UTF-8">
+  <title>PDF to iCal</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    #loading { display: none; color: green; font-weight: bold; }
+  </style>
+</head>
 <body>
   <h1>Upload Calendar PDF</h1>
   <form id="uploadForm">
@@ -14,6 +21,7 @@
     </select><br>
     <button type="submit">Convert</button>
   </form>
+  <p id="loading">Converting calendar... please wait.</p>
   <a id="downloadLink" href="#" style="display:none;" download="converted-calendar.ics">Download iCal</a>
 <script>
 document.getElementById("uploadForm").addEventListener("submit", async function(e) {
@@ -21,18 +29,27 @@ document.getElementById("uploadForm").addEventListener("submit", async function(
   const file = document.getElementById("pdfInput").files[0];
   const timezone = document.getElementById("timezone").value;
   const reader = new FileReader();
+  document.getElementById("loading").style.display = "block";
+  document.getElementById("downloadLink").style.display = "none";
+
   reader.onload = async function() {
     const base64 = reader.result.split(",")[1];
-    const response = await fetch("/.netlify/functions/pdfToIcal", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ body: base64, timezone })
-    });
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    const link = document.getElementById("downloadLink");
-    link.href = url;
-    link.style.display = "inline-block";
+    try {
+      const response = await fetch("/.netlify/functions/pdfToIcal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body: base64, timezone })
+      });
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.getElementById("downloadLink");
+      link.href = url;
+      link.style.display = "inline-block";
+    } catch (err) {
+      alert("An error occurred while converting your calendar.");
+    } finally {
+      document.getElementById("loading").style.display = "none";
+    }
   };
   reader.readAsDataURL(file);
 });

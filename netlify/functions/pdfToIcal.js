@@ -12,28 +12,25 @@ exports.handler = async function(event, context) {
     const { body: base64, timezone } = JSON.parse(event.body);
     const buffer = Buffer.from(base64, 'base64');
     const data = await pdf(buffer);
-    const text = data.text.replace(/\r/g, '').replace(/  +/g, ' ');
+    const text = data.text.replace(/\r/g, '').replace(/\s{2,}/g, ' ').trim();
 
     const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
     const events = [];
     const seen = new Set();
-
     let currentDay = null;
 
     const timeApmRegex = /^(\d{1,2})(A|P)\s+(.+)/i;
-    const timeLocationDayRegex = /^(\d{1,2})(?::(\d{2}))?\s+(.+?)\s+\[(\w+)\]\s+(\d{1,2})$/;
-    const timeLocationLooseRegex = /^(\d{1,2})(?::(\d{2}))?\s+(.+?)\s+\[(\w+)\]$/;
+    const timeWithLocationDayRegex = /^(\d{1,2})(?::(\d{2}))?\s+(.+?)\s+\[(\w+)\]\s+(\d{1,2})$/;
+    const timeWithLocationLooseRegex = /^(\d{1,2})(?::(\d{2}))?\s+(.+?)\s+\[(\w+)\]$/;
 
     for (let line of lines) {
       let match;
 
-      // Match format like "9A Good News"
       if ((match = line.match(timeApmRegex))) {
         let [, hour, ampm, title] = match;
         hour = parseInt(hour);
         if (ampm.toUpperCase() === "P" && hour < 12) hour += 12;
         if (ampm.toUpperCase() === "A" && hour === 12) hour = 0;
-
         if (currentDay) {
           const key = `feb-${currentDay}-${title}`;
           if (!seen.has(key)) {
@@ -51,8 +48,7 @@ exports.handler = async function(event, context) {
         continue;
       }
 
-      // Match format like "1:30 Senior Link short clips [MC] 3"
-      if ((match = line.match(timeLocationDayRegex))) {
+      if ((match = line.match(timeWithLocationDayRegex))) {
         let [, hour, minute = "00", title, locCode, day] = match;
         hour = parseInt(hour);
         minute = parseInt(minute);
@@ -72,8 +68,7 @@ exports.handler = async function(event, context) {
         continue;
       }
 
-      // Match format like "1:30 1:1 with Sami [MC]" (multi-token titles, no day)
-      if ((match = line.match(timeLocationLooseRegex))) {
+      if ((match = line.match(timeWithLocationLooseRegex))) {
         let [, hour, minute = "00", title, locCode] = match;
         hour = parseInt(hour);
         minute = parseInt(minute);
@@ -94,11 +89,8 @@ exports.handler = async function(event, context) {
         continue;
       }
 
-      // Update currentDay from any trailing day number
       const dayMatch = line.match(/(\d{1,2})$/);
-      if (dayMatch) {
-        currentDay = parseInt(dayMatch[1]);
-      }
+      if (dayMatch) currentDay = parseInt(dayMatch[1]);
     }
 
     const now = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
