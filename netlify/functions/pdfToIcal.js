@@ -1,5 +1,6 @@
 const { Buffer } = require('buffer');
 const pdf = require('pdf-parse');
+
 const locationMap = {
   MC: "Memory Care",
   FA: "Family Area",
@@ -15,6 +16,7 @@ exports.handler = async function(event, context) {
 
     const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
     const events = [];
+    const seen = new Set();
 
     let currentDay = null;
 
@@ -22,50 +24,42 @@ exports.handler = async function(event, context) {
     const timeClockRegex = /(\d{1,2}(?::\d{2})?)\s+(.+?)\s+\[(\w+)\]\s+(\d{1,2})$/;
     const timeClockLooseRegex = /(\d{1,2}(?::\d{2})?)\s+(.+?)\s+\[(\w+)\]$/;
 
-    lines.forEach((line, idx) => {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
       let match = null;
 
-      // Match "9A Good News" style (Feb)
       if ((match = line.match(timeApmRegex))) {
         let [, hour, ampm, title] = match;
         hour = parseInt(hour);
         if (ampm.toUpperCase() === 'P' && hour < 12) hour += 12;
         if (ampm.toUpperCase() === 'A' && hour === 12) hour = 0;
-        events.push({
-          day: currentDay,
-          title: title.trim(),
-          hour,
-          minute: 0,
-          location: null
-        });
-        return;
-      }
 
-      // Match "1:30 Title [MC] 1" style (March)
-      if ((match = line.match(timeClockRegex))) {
-        let [_, time, title, locCode, day] = match;
-        let [hour, minute = '00'] = time.split(':');
-        hour = parseInt(hour);
-        minute = parseInt(minute);
-        currentDay = parseInt(day);
-        events.push({
-          day: currentDay,
-          title: title.trim(),
-          hour,
-          minute,
-          location: locationMap[locCode] || locCode
-        });
-        return;
-      }
-
-      // Match "1:30 Title [MC]" style (loose)
-      if ((match = line.match(timeClockLooseRegex))) {
-        let [_, time, title, locCode] = match;
-        let [hour, minute = '00'] = time.split(':');
-        hour = parseInt(hour);
-        minute = parseInt(minute);
-        if (currentDay !== null) {
+        const dateKey = `feb-${currentDay}-${title}`;
+        if (!seen.has(dateKey) && currentDay) {
+          seen.add(dateKey);
           events.push({
+            month: "02",
+            day: currentDay,
+            title: title.trim(),
+            hour,
+            minute: 0,
+            location: null
+          });
+        }
+        continue;
+      }
+
+      if ((match = line.match(timeClockRegex))) {
+        let [, time, title, locCode, day] = match;
+        const [hourStr, minStr = '00'] = time.split(':');
+        const hour = parseInt(hourStr);
+        const minute = parseInt(minStr);
+        currentDay = parseInt(day);
+        const key = `mar-${currentDay}-${title}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          events.push({
+            month: "03",
             day: currentDay,
             title: title.trim(),
             hour,
@@ -73,15 +67,36 @@ exports.handler = async function(event, context) {
             location: locationMap[locCode] || locCode
           });
         }
-        return;
+        continue;
       }
 
-      // Match lines ending in a number (used for currentDay)
-      const dayAtEnd = line.match(/(.*)\s+(\d{1,2})$/);
-      if (dayAtEnd) {
-        currentDay = parseInt(dayAtEnd[2]);
+      if ((match = line.match(timeClockLooseRegex))) {
+        let [, time, title, locCode] = match;
+        const [hourStr, minStr = '00'] = time.split(':');
+        const hour = parseInt(hourStr);
+        const minute = parseInt(minStr);
+        if (currentDay) {
+          const key = `mar-${currentDay}-${title}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            events.push({
+              month: "03",
+              day: currentDay,
+              title: title.trim(),
+              hour,
+              minute,
+              location: locationMap[locCode] || locCode
+            });
+          }
+        }
+        continue;
       }
-    });
+
+      const dayMatch = line.match(/(.*)\s+(\d{1,2})$/);
+      if (dayMatch) {
+        currentDay = parseInt(dayMatch[2]);
+      }
+    }
 
     const now = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
     const linesOut = [
@@ -93,10 +108,9 @@ exports.handler = async function(event, context) {
       'X-WR-TIMEZONE:' + timezone
     ];
 
-    events.forEach(event => {
-      if (!event.day || !event.title) return;
-
-      const dateStr = `202503${String(event.day).padStart(2, '0')}`;
+    for (const event of events) {
+      if (!event.day || !event.title) continue;
+      const dateStr = `2025${event.month}${String(event.day).padStart(2, '0')}`;
       const uid = Math.random().toString(36).substring(2) + '@pdfcalendar';
 
       linesOut.push('BEGIN:VEVENT');
@@ -117,7 +131,7 @@ exports.handler = async function(event, context) {
         linesOut.push('LOCATION:' + event.location);
       }
       linesOut.push('END:VEVENT');
-    });
+    }
 
     linesOut.push('END:VCALENDAR');
 
