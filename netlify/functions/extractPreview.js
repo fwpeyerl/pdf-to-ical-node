@@ -22,26 +22,23 @@ exports.handler = async function(event, context) {
 
     const timeApmRegex = /^(\d{1,2})(A|P)\s+(.+)/i;
     const dayOnlyRegex = /^\d{1,2}$/;
-    const knownDayPrefixRegex = /^\d{1,2}\s+(\d{1,2}[AP])\s+(.+)/i;
+    const splitDayAndEventRegex = /^(\d{1,2})\s+(\d{1,2})(A|P)\s+(.+)/i;
 
     rawLines.forEach((line, index) => {
-      const entry = { line: line, matched: false, result: null, index: index + 1 };
+      const entry = { line, matched: false, result: null, index: index + 1 };
 
-      let match;
-      if ((match = line.match(dayOnlyRegex))) {
-        currentDay = parseInt(match[0]);
-        return;
-      }
-
-      if ((match = line.match(timeApmRegex))) {
-        let [, hour, ampm, title] = match;
-        hour = parseInt(hour);
+      // Split lines like "2 9A Good News"
+      const splitMatch = line.match(splitDayAndEventRegex);
+      if (splitMatch) {
+        const [, dayStr, hourStr, ampm, title] = splitMatch;
+        currentDay = parseInt(dayStr);
+        let hour = parseInt(hourStr);
         if (ampm.toUpperCase() === "P" && hour < 12) hour += 12;
         if (ampm.toUpperCase() === "A" && hour === 12) hour = 0;
         entry.matched = true;
         entry.result = {
           month: currentMonth,
-          day: currentDay,
+          day: currentDay + 1,  // Event goes to *next* day
           title: title.trim(),
           hour,
           minute: 0,
@@ -51,13 +48,37 @@ exports.handler = async function(event, context) {
         return;
       }
 
-      if ((match = line.match(knownDayPrefixRegex))) {
-        // line looks like "2 9A Good News", skip because likely day mistake
+      // Match single day on a line
+      const dayMatch = line.match(dayOnlyRegex);
+      if (dayMatch) {
+        currentDay = parseInt(dayMatch[0]);
         return;
       }
 
-      // All day item fallback
-      if (currentDay && line && !line.match(/^(\d{1,2}[AP])\s+/i)) {
+      // Match "9A Good News"
+      const match = line.match(timeApmRegex);
+      if (match) {
+        let [, hour, ampm, title] = match;
+        hour = parseInt(hour);
+        if (ampm.toUpperCase() === "P" && hour < 12) hour += 12;
+        if (ampm.toUpperCase() === "A" && hour === 12) hour = 0;
+        if (currentDay) {
+          entry.matched = true;
+          entry.result = {
+            month: currentMonth,
+            day: currentDay,
+            title: title.trim(),
+            hour,
+            minute: 0,
+            location: ""
+          };
+          lines.push(entry);
+        }
+        return;
+      }
+
+      // Match all-day event
+      if (currentDay && line && !line.match(timeApmRegex)) {
         entry.matched = true;
         entry.result = {
           month: currentMonth,
@@ -74,7 +95,7 @@ exports.handler = async function(event, context) {
     const parsed = lines.filter(e => e.matched).map(e => e.result);
     return {
       statusCode: 200,
-      body: JSON.stringify({ parsed, debug: lines.slice(0, 40) })
+      body: JSON.stringify({ parsed, debug: lines.slice(0, 60) })
     };
   } catch (err) {
     return {
